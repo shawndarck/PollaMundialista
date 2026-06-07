@@ -64,7 +64,7 @@
           </p>
 
           <button class="primary-action" type="submit" id="authSubmit">Ingresar</button>
-          <button class="ghost-action admin-login-action" type="button" id="adminLoginButton">Ingresar como administrador</button>
+          <button class="ghost-action admin-login-action" type="button" id="adminLoginButton">Usar acceso administrador</button>
           <p class="form-note" id="authMessage"></p>
         </form>
       </section>
@@ -104,6 +104,7 @@
 
         <div class="tab-row main-tabs">
           <button class="tab active" type="button" data-view="matches">Pronosticos</button>
+          <button class="tab" type="button" data-view="calendar">Calendario</button>
           <button class="tab" type="button" data-view="ranking">Tabla</button>
           <button class="tab" type="button" data-view="rules">Reglamento</button>
         </div>
@@ -113,6 +114,7 @@
             <label>
               Fase / grupo
               <select id="phaseFilter">
+                <option value="priority">Hoy / proximos</option>
                 <option value="all">Todos</option>
                 <option value="group">Fase de grupos</option>
                 <option value="knockout">Eliminacion directa</option>
@@ -127,6 +129,13 @@
           </div>
           <div class="panel prediction-receipt hidden" id="predictionReceipt"></div>
           <div class="match-list" id="matchList"></div>
+        </section>
+
+        <section class="view hidden" id="calendarView">
+          <div class="panel ranking-note">
+            <p>Consulta general de todos los partidos del torneo. Los pronosticos se registran desde la pestaña Pronosticos.</p>
+          </div>
+          <div class="calendar-list" id="calendarList"></div>
         </section>
 
         <section class="view hidden" id="rankingView">
@@ -229,6 +238,7 @@
           </section>
         </aside>
       </section>
+      <footer class="site-footer">Este aplicativo es de JOSE M. VASQUEZ</footer>
     </main>
 
     <script src="app.js"></script>

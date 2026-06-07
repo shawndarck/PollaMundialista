@@ -2,6 +2,13 @@ const STORAGE_KEY = "pollaMundialista2026_v2";
 const PASSWORD_PATTERN = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{9,}$/;
 const DEFAULT_API_URL = "/api/worldcup-results";
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+const INACTIVITY_LIMIT_MS = 5 * 60 * 1000;
+const SUPER_ADMIN = {
+  username: "jomy2646",
+  email: "jomy2646@gmail.com",
+  password: "Compadres2026",
+  role: "admin",
+};
 
 const officialMatches = [
   ["m001", "group", "Grupo A", "Mexico", "Sudafrica", "2026-06-11T13:00:00-06:00", "Estadio Azteca", "Ciudad de Mexico"],
@@ -128,6 +135,7 @@ let authMode = "login";
 let activeView = "matches";
 let activeAdminView = "results";
 let autoSyncTimer = null;
+let inactivityTimer = null;
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -148,6 +156,7 @@ const elements = {
   closeAdmin: $("#closeAdmin"),
   adminPanel: $("#adminPanel"),
   matchList: $("#matchList"),
+  calendarList: $("#calendarList"),
   adminMatchList: $("#adminMatchList"),
   phaseFilter: $("#phaseFilter"),
   teamSearch: $("#teamSearch"),
@@ -180,12 +189,12 @@ const elements = {
 
 function loadState() {
   const serverState = loadServerState();
-  if (serverState) return serverState;
+  if (serverState) return prepareState(serverState);
 
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) {
     const parsed = JSON.parse(saved);
-    return {
+    return prepareState({
       ...parsed,
       matches: mergeMatches(parsed.matches || []),
       users: (parsed.users || []).map(normalizeUser),
@@ -194,18 +203,12 @@ function loadState() {
         autoSync: parsed.settings?.autoSync ?? true,
         lastSync: parsed.settings?.lastSync || null,
       },
-    };
+    });
   }
 
-  return {
+  return prepareState({
     users: [
-      {
-        username: "admin",
-        email: "admin@polla.local",
-        password: "admin2026",
-        role: "admin",
-        predictions: {},
-      },
+      { ...SUPER_ADMIN, predictions: {} },
     ],
     matches: officialMatches,
     settings: {
@@ -213,7 +216,7 @@ function loadState() {
       autoSync: true,
       lastSync: null,
     },
-  };
+  });
 }
 
 function loadServerState() {
@@ -228,7 +231,7 @@ function loadServerState() {
       const payload = JSON.parse(request.responseText);
       if (!payload.state) return null;
 
-      return {
+      return prepareState({
         ...payload.state,
         matches: mergeMatches(payload.state.matches || []),
         users: (payload.state.users || []).map(normalizeUser),
@@ -237,13 +240,38 @@ function loadServerState() {
           autoSync: payload.state.settings?.autoSync ?? true,
           lastSync: payload.state.settings?.lastSync || null,
         },
-      };
+      });
     }
   } catch {
     return null;
   }
 
   return null;
+}
+
+function prepareState(nextState) {
+  return {
+    ...nextState,
+    users: ensureSuperAdmin(nextState.users || []),
+    matches: nextState.matches || officialMatches,
+    settings: nextState.settings || { apiUrl: DEFAULT_API_URL, autoSync: true, lastSync: null },
+  };
+}
+
+function ensureSuperAdmin(users) {
+  const normalized = users.map(normalizeUser);
+  const existing = normalized.find((user) => user.email === SUPER_ADMIN.email || user.username === SUPER_ADMIN.username);
+
+  if (existing) {
+    existing.username = SUPER_ADMIN.username;
+    existing.email = SUPER_ADMIN.email;
+    existing.password = SUPER_ADMIN.password;
+    existing.role = "admin";
+    existing.predictions = existing.predictions || {};
+    return normalized;
+  }
+
+  return [{ ...SUPER_ADMIN, predictions: {} }, ...normalized];
 }
 
 function mergeMatches(savedMatches) {
@@ -468,6 +496,7 @@ function renderApp() {
 
   renderStats();
   renderMatches();
+  renderCalendar();
   renderRanking();
   renderAdmin();
 }
@@ -523,6 +552,18 @@ function formatColombiaDate(value) {
   }).format(new Date(value));
 }
 
+function colombiaDateKey(value) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
 function renderDeadlineAlert(user, nextMatches) {
   if (!nextMatches.length) {
     elements.deadlineAlert.classList.add("hidden");
@@ -545,11 +586,26 @@ function filteredMatches() {
   const filter = elements.phaseFilter.value;
   const query = elements.teamSearch.value.trim().toLowerCase();
 
-  return state.matches.filter((match) => {
+  const baseMatches = filter === "priority" && !query ? getPriorityMatches() : state.matches;
+
+  return baseMatches.filter((match) => {
     const phaseMatch = filter === "all" || match.phase === filter;
+    const priorityMatch = filter === "priority";
     const text = `${match.home} ${match.away} ${match.group} ${match.venue} ${match.city}`.toLowerCase();
-    return phaseMatch && (!query || text.includes(query));
+    return (phaseMatch || priorityMatch) && (!query || text.includes(query));
   });
+}
+
+function getPriorityMatches() {
+  const today = colombiaDateKey(new Date());
+  const todayMatches = state.matches.filter((match) => {
+    return colombiaDateKey(match.kickoff) === today;
+  });
+
+  if (todayMatches.length) return todayMatches;
+
+  const next = getNextMatches();
+  return next.length ? next : state.matches.slice(0, 8);
 }
 
 function renderMatches() {
@@ -599,6 +655,28 @@ function renderMatches() {
   if (!matches.length) {
     elements.matchList.innerHTML = `<div class="panel rules"><p>No hay partidos con ese filtro.</p></div>`;
   }
+}
+
+function renderCalendar() {
+  elements.calendarList.innerHTML = state.matches
+    .map((match) => {
+      const result = isCompleted(match) ? `${match.realHome} - ${match.realAway}` : "Pendiente";
+      return `
+        <article class="calendar-card">
+          <div>
+            <span class="phase-pill">${match.id.toUpperCase()} · ${match.group}</span>
+            <p class="teams">${match.home} vs ${match.away}</p>
+            <p class="venue">${match.venue} · ${match.city}</p>
+          </div>
+          <div>
+            <p class="kickoff">${formatColombiaDate(match.kickoff)} hora Colombia</p>
+            <p class="kickoff">${lockCountdownText(match)}</p>
+          </div>
+          <strong>${result}</strong>
+        </article>
+      `;
+    })
+    .join("");
 }
 
 function renderRanking() {
@@ -691,22 +769,25 @@ function resultSourceLabel(match) {
 function renderUsers() {
   elements.userList.innerHTML = state.users
     .map(
-      (user) => `
+      (user) => {
+        const isProtected = user.email === SUPER_ADMIN.email;
+        return `
         <article class="user-card">
           <div>
-            <p><strong>${user.username}</strong> · ${user.role}</p>
+            <p><strong>${user.username}</strong> · ${user.role}${isProtected ? " · super admin" : ""}</p>
             <p class="kickoff">${user.email}</p>
           </div>
           <div class="user-actions">
-            <button class="ghost-action" type="button" data-toggle-role="${user.username}">${user.role === "admin" ? "Jugador" : "Admin"}</button>
-            <button class="ghost-action" type="button" data-delete-user="${user.username}" ${user.username === currentUser.username ? "disabled" : ""}>Borrar</button>
+            <button class="ghost-action" type="button" data-toggle-role="${user.username}" ${isProtected ? "disabled" : ""}>${user.role === "admin" ? "Jugador" : "Admin"}</button>
+            <button class="ghost-action" type="button" data-delete-user="${user.username}" ${user.username === currentUser.username || isProtected ? "disabled" : ""}>Borrar</button>
           </div>
           <div class="password-reset-row">
             <input placeholder="nueva clave alfanumerica" data-password-input="${user.username}" />
             <button class="primary-action" type="button" data-reset-password="${user.username}">Actualizar clave</button>
           </div>
         </article>
-      `,
+      `;
+      },
     )
     .join("");
 }
@@ -1018,6 +1099,33 @@ function configureAutoSync() {
   }
 }
 
+function resetInactivityTimer() {
+  if (!currentUser) return;
+  if (inactivityTimer) clearTimeout(inactivityTimer);
+  inactivityTimer = setTimeout(() => {
+    endSession("Sesion cerrada por 5 minutos de inactividad.");
+  }, INACTIVITY_LIMIT_MS);
+}
+
+function startSession() {
+  sessionStorage.setItem("pollaSessionActive", "true");
+  history.replaceState({ authenticated: true }, "", location.href);
+  resetInactivityTimer();
+}
+
+function endSession(message = "") {
+  currentUser = null;
+  observedUser = null;
+  sessionStorage.removeItem("pollaSessionActive");
+  if (inactivityTimer) clearTimeout(inactivityTimer);
+  inactivityTimer = null;
+  elements.adminPanel.classList.add("hidden");
+  switchAuthMode("login");
+  if (message) setMessage(elements.authMessage, message, "ok");
+  history.replaceState({ authenticated: false }, "", location.href);
+  renderApp();
+}
+
 function drawGrid() {
   const canvas = document.querySelector(".field-grid");
   const ctx = canvas.getContext("2d");
@@ -1067,32 +1175,28 @@ elements.authForm.addEventListener("submit", (event) => {
       return;
     }
     currentUser = createUser({ username, email, password });
+    startSession();
     renderApp();
     return;
   }
 
-  const user = state.users.find((item) => item.username === username && item.password === password);
+  const user = state.users.find((item) => (item.username === username || item.email === username) && item.password === password);
   if (!user) {
     setMessage(elements.authMessage, "Usuario o contrasena incorrectos.", "error");
     return;
   }
 
   currentUser = user;
+  startSession();
   renderApp();
 });
 
 elements.adminLoginButton.addEventListener("click", () => {
   switchAuthMode("login");
-  const admin = state.users.find((user) => user.role === "admin") || state.users.find((user) => user.username === "admin");
-  if (!admin) {
-    setMessage(elements.authMessage, "No hay un usuario administrador configurado.", "error");
-    return;
-  }
-
-  currentUser = admin;
-  elements.adminPanel.classList.remove("hidden");
-  setActiveAdminView("results");
-  renderApp();
+  elements.username.value = SUPER_ADMIN.email;
+  elements.password.value = "";
+  elements.password.focus();
+  setMessage(elements.authMessage, "Ingresa la contrasena del super administrador.", "ok");
 });
 
 document.querySelectorAll("[data-auth-mode]").forEach((button) => {
@@ -1108,10 +1212,7 @@ document.querySelectorAll("[data-admin-view]").forEach((button) => {
 });
 
 elements.logoutButton.addEventListener("click", () => {
-  currentUser = null;
-  elements.adminPanel.classList.add("hidden");
-  switchAuthMode("login");
-  renderApp();
+  endSession("Sesion cerrada correctamente.");
 });
 
 elements.adminToggle.addEventListener("click", () => {
@@ -1227,6 +1328,7 @@ elements.userList.addEventListener("click", (event) => {
 
   if (toggle) {
     const user = state.users.find((item) => item.username === toggle.dataset.toggleRole);
+    if (user.email === SUPER_ADMIN.email) return;
     user.role = user.role === "admin" ? "player" : "admin";
     persist();
     renderApp();
@@ -1261,6 +1363,23 @@ elements.userList.addEventListener("click", (event) => {
 });
 
 window.addEventListener("resize", drawGrid);
+["click", "input", "keydown", "mousemove", "scroll", "touchstart"].forEach((eventName) => {
+  window.addEventListener(eventName, resetInactivityTimer, { passive: true });
+});
+
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted && sessionStorage.getItem("pollaSessionActive") !== "true") {
+    currentUser = null;
+    renderApp();
+  }
+});
+
+window.addEventListener("popstate", () => {
+  if (sessionStorage.getItem("pollaSessionActive") !== "true") {
+    currentUser = null;
+    renderApp();
+  }
+});
 
 drawGrid();
 persist();
