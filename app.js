@@ -9,6 +9,15 @@ const SUPER_ADMIN = {
   password: "Compadres2026",
   role: "admin",
 };
+const DEFAULT_SETTINGS = {
+  apiUrl: DEFAULT_API_URL,
+  autoSync: true,
+  lastSync: null,
+  tournamentClosed: false,
+  winnerUsername: null,
+  winnerName: null,
+  winnerDeclaredAt: null,
+};
 
 const officialMatches = [
   ["m001", "group", "Grupo A", "Mexico", "Sudafrica", "2026-06-11T13:00:00-06:00", "Estadio Azteca", "Ciudad de Mexico"],
@@ -185,6 +194,18 @@ const elements = {
   autoSyncResults: $("#autoSyncResults"),
   syncResultsButton: $("#syncResultsButton"),
   syncMessage: $("#syncMessage"),
+  tournamentNotice: $("#tournamentNotice"),
+  winnerSelect: $("#winnerSelect"),
+  declareWinnerButton: $("#declareWinnerButton"),
+  resetTournamentButton: $("#resetTournamentButton"),
+  tournamentMessage: $("#tournamentMessage"),
+  appModal: $("#appModal"),
+  modalKicker: $("#modalKicker"),
+  modalTitle: $("#modalTitle"),
+  modalBody: $("#modalBody"),
+  modalConfirmInput: $("#modalConfirmInput"),
+  modalCancelButton: $("#modalCancelButton"),
+  modalConfirmButton: $("#modalConfirmButton"),
 };
 
 function loadState() {
@@ -199,9 +220,7 @@ function loadState() {
       matches: mergeMatches(parsed.matches || []),
       users: (parsed.users || []).map(normalizeUser),
       settings: {
-        apiUrl: normalizeApiUrl(parsed.settings?.apiUrl),
-        autoSync: parsed.settings?.autoSync ?? true,
-        lastSync: parsed.settings?.lastSync || null,
+        ...defaultSettings(parsed.settings),
       },
     });
   }
@@ -212,9 +231,7 @@ function loadState() {
     ],
     matches: officialMatches,
     settings: {
-      apiUrl: DEFAULT_API_URL,
-      autoSync: true,
-      lastSync: null,
+      ...DEFAULT_SETTINGS,
     },
   });
 }
@@ -236,9 +253,7 @@ function loadServerState() {
         matches: mergeMatches(payload.state.matches || []),
         users: (payload.state.users || []).map(normalizeUser),
         settings: {
-          apiUrl: normalizeApiUrl(payload.state.settings?.apiUrl),
-          autoSync: payload.state.settings?.autoSync ?? true,
-          lastSync: payload.state.settings?.lastSync || null,
+          ...defaultSettings(payload.state.settings),
         },
       });
     }
@@ -254,7 +269,21 @@ function prepareState(nextState) {
     ...nextState,
     users: ensureSuperAdmin(nextState.users || []),
     matches: nextState.matches || officialMatches,
-    settings: nextState.settings || { apiUrl: DEFAULT_API_URL, autoSync: true, lastSync: null },
+    settings: defaultSettings(nextState.settings),
+  };
+}
+
+function defaultSettings(settings = {}) {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    apiUrl: normalizeApiUrl(settings.apiUrl),
+    autoSync: settings.autoSync ?? DEFAULT_SETTINGS.autoSync,
+    lastSync: settings.lastSync || null,
+    tournamentClosed: Boolean(settings.tournamentClosed),
+    winnerUsername: settings.winnerUsername || null,
+    winnerName: settings.winnerName || null,
+    winnerDeclaredAt: settings.winnerDeclaredAt || null,
   };
 }
 
@@ -334,6 +363,71 @@ function setMessage(element, text, type = "") {
   element.className = `form-note ${type}`.trim();
 }
 
+function showConfirmModal({
+  kicker = "// Confirmacion",
+  title,
+  body,
+  confirmText = "Aceptar",
+  cancelText = "Cancelar",
+  requiredText = "",
+  danger = false,
+}) {
+  return new Promise((resolve) => {
+    const close = (confirmed) => {
+      elements.appModal.classList.add("hidden");
+      elements.modalConfirmInput.classList.add("hidden");
+      elements.modalConfirmInput.required = false;
+      elements.modalConfirmInput.value = "";
+      elements.modalConfirmButton.classList.remove("danger-action");
+      elements.modalConfirmButton.removeEventListener("click", onConfirm);
+      elements.modalCancelButton.removeEventListener("click", onCancel);
+      elements.modalConfirmInput.removeEventListener("input", syncConfirmState);
+      elements.appModal.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKeydown);
+      resolve(confirmed);
+    };
+
+    const inputMatches = () => !requiredText || elements.modalConfirmInput.value.trim() === requiredText;
+    const syncConfirmState = () => {
+      elements.modalConfirmButton.disabled = !inputMatches();
+    };
+    const onConfirm = () => {
+      if (inputMatches()) close(true);
+    };
+    const onCancel = () => close(false);
+    const onBackdrop = (event) => {
+      if (event.target === elements.appModal) close(false);
+    };
+    const onKeydown = (event) => {
+      if (event.key === "Escape") close(false);
+    };
+
+    elements.modalKicker.textContent = kicker;
+    elements.modalTitle.textContent = title;
+    elements.modalBody.innerHTML = body;
+    elements.modalConfirmButton.textContent = confirmText;
+    elements.modalCancelButton.textContent = cancelText;
+    elements.modalConfirmButton.classList.toggle("danger-action", danger);
+
+    if (requiredText) {
+      elements.modalConfirmInput.classList.remove("hidden");
+      elements.modalConfirmInput.placeholder = `Escribe ${requiredText} para confirmar`;
+      elements.modalConfirmInput.setAttribute("aria-label", `Escribe ${requiredText} para confirmar`);
+      elements.modalConfirmInput.addEventListener("input", syncConfirmState, { once: false });
+    }
+
+    elements.modalConfirmButton.addEventListener("click", onConfirm);
+    elements.modalCancelButton.addEventListener("click", onCancel);
+    elements.appModal.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKeydown);
+    elements.appModal.classList.remove("hidden");
+    syncConfirmState();
+
+    if (requiredText) elements.modalConfirmInput.focus();
+    else elements.modalConfirmButton.focus();
+  });
+}
+
 function validPassword(value) {
   return PASSWORD_PATTERN.test(value);
 }
@@ -363,7 +457,11 @@ function isCompleted(match) {
 }
 
 function isPredictionLocked(match) {
-  return isTimeLocked(match) || isResultLocked(match);
+  return isReadOnlyMode() || isTimeLocked(match) || isResultLocked(match);
+}
+
+function isReadOnlyMode() {
+  return Boolean(state.settings.tournamentClosed && currentUser?.role !== "admin");
 }
 
 function isTimeLocked(match) {
@@ -375,6 +473,7 @@ function isResultLocked(match) {
 }
 
 function lockCountdownText(match) {
+  if (isReadOnlyMode()) return "Polla cerrada: solo consulta";
   if (match.officialFinal) return "Resultado oficial definitivo";
   if (match.resultLocked) return "Resultado bloqueado por admin";
   const lockMs = new Date(match.kickoff).getTime() - 10 * 60 * 1000;
@@ -494,11 +593,31 @@ function renderApp() {
   elements.welcomeEmail.textContent = currentUser.email;
   elements.adminToggle.classList.toggle("hidden", currentUser.role !== "admin");
 
+  renderTournamentNotice();
   renderStats();
   renderMatches();
   renderCalendar();
   renderRanking();
   renderAdmin();
+}
+
+function renderTournamentNotice() {
+  if (!state.settings.tournamentClosed || !state.settings.winnerName) {
+    elements.tournamentNotice.classList.add("hidden");
+    elements.tournamentNotice.innerHTML = "";
+    return;
+  }
+
+  const declared = state.settings.winnerDeclaredAt ? `Declarado el ${state.settings.winnerDeclaredAt}.` : "";
+  const adminText = currentUser.role === "admin"
+    ? "La plataforma sigue disponible para administracion y consultas."
+    : "La plataforma quedo en modo consulta. No se pueden registrar ni modificar pronosticos.";
+
+  elements.tournamentNotice.classList.remove("hidden");
+  elements.tournamentNotice.innerHTML = `
+    <strong>Ganador de la Polla Mundialista: ${state.settings.winnerName}</strong>
+    <span>${declared} ${adminText}</span>
+  `;
 }
 
 function renderStats() {
@@ -611,6 +730,11 @@ function getPriorityMatches() {
 function renderMatches() {
   const matches = filteredMatches();
   renderPredictionReceipt();
+  const readOnly = isReadOnlyMode();
+  elements.registerPredictionsButton.disabled = readOnly;
+  elements.registerPredictionsButton.textContent = readOnly ? "Polla cerrada" : "Registrar pronosticos";
+  if (readOnly) setMessage(elements.saveMessage, "La polla ya tiene ganador declarado. Solo puedes consultar.", "ok");
+
   elements.matchList.innerHTML = matches
     .map((match) => {
       const prediction = currentUser.predictions[match.id] || {};
@@ -619,7 +743,7 @@ function renderMatches() {
       const points = scorePrediction(match, prediction);
       const resultLabel = completed ? `${match.realHome} - ${match.realAway}` : "Pendiente";
       const statusClass = locked ? "status-locked" : "status-open";
-      const statusText = locked ? "Cerrado" : "Abierto";
+      const statusText = readOnly ? "Solo consulta" : locked ? "Cerrado" : "Abierto";
       const sourceLabel = match.officialFinal ? "Oficial API" : match.resultSource === "manual" ? "Manual" : "Sin resultado";
 
       return `
@@ -728,6 +852,17 @@ function renderAdmin() {
   elements.apiUrl.value = state.settings.apiUrl;
   elements.autoSyncResults.checked = state.settings.autoSync;
   setMessage(elements.syncMessage, state.settings.lastSync ? `Ultima sincronizacion: ${state.settings.lastSync}` : "");
+  elements.winnerSelect.innerHTML = getRanking()
+    .map((row) => `<option value="${row.user.username}" ${state.settings.winnerUsername === row.user.username ? "selected" : ""}>${row.user.username} - ${row.points} pts</option>`)
+    .join("");
+  elements.declareWinnerButton.textContent = state.settings.tournamentClosed ? "Actualizar ganador" : "Declarar ganador";
+  setMessage(
+    elements.tournamentMessage,
+    state.settings.tournamentClosed && state.settings.winnerName
+      ? `Polla cerrada. Ganador actual: ${state.settings.winnerName}.`
+      : "El cierre final bloquea los ingresos de jugadores y deja la plataforma en consulta.",
+    state.settings.tournamentClosed ? "ok" : "",
+  );
 
   elements.adminMatchList.innerHTML = state.matches
     .map(
@@ -925,7 +1060,12 @@ function collectVisiblePredictionDrafts() {
   return { drafts, errors };
 }
 
-function registerVisiblePredictions() {
+async function registerVisiblePredictions() {
+  if (isReadOnlyMode()) {
+    setMessage(elements.saveMessage, "La polla ya fue cerrada por el administrador. Solo puedes consultar.", "error");
+    return;
+  }
+
   const { drafts, errors } = collectVisiblePredictionDrafts();
   if (errors.length) {
     setMessage(elements.saveMessage, `Hay marcadores incompletos: ${errors.slice(0, 3).join(", ")}.`, "error");
@@ -952,9 +1092,18 @@ function registerVisiblePredictions() {
     return;
   }
 
-  const confirmed = window.confirm(
-    `Confirmar registro de pronosticos visibles?\n\nGuardar/actualizar: ${toSave}\nBorrar: ${toDelete}\nCerrados no modificables: ${locked}`,
-  );
+  const confirmed = await showConfirmModal({
+    title: "Confirmar registro de pronosticos",
+    body: `
+      <p>Se registraran los cambios visibles en esta pantalla.</p>
+      <dl class="modal-summary">
+        <div><dt>Guardar / actualizar</dt><dd>${toSave}</dd></div>
+        <div><dt>Borrar</dt><dd>${toDelete}</dd></div>
+        <div><dt>Cerrados no modificables</dt><dd>${locked}</dd></div>
+      </dl>
+    `,
+    confirmText: "Registrar",
+  });
 
   if (!confirmed) {
     setMessage(elements.saveMessage, "Registro cancelado. No se hicieron cambios.");
@@ -1086,6 +1235,100 @@ async function syncResultsFromApi({ silent = false } = {}) {
   } catch (error) {
     if (!silent) setMessage(elements.syncMessage, `No se pudo sincronizar: ${error.message}. Puedes cargar resultados manualmente.`, "error");
   }
+}
+
+async function declareTournamentWinner() {
+  if (currentUser?.role !== "admin") return;
+
+  const winner = state.users.find((user) => user.username === elements.winnerSelect.value);
+  if (!winner) {
+    setMessage(elements.tournamentMessage, "Selecciona un participante valido.", "error");
+    return;
+  }
+
+  const confirmed = await showConfirmModal({
+    title: "Declarar ganador de la polla",
+    body: `
+      <p>Se notificara a todos los perfiles que <strong>${winner.username}</strong> es el ganador.</p>
+      <p>Los jugadores quedaran en modo consulta y no podran registrar mas pronosticos.</p>
+    `,
+    confirmText: "Declarar ganador",
+  });
+
+  if (!confirmed) {
+    setMessage(elements.tournamentMessage, "Cierre cancelado. No se hicieron cambios.");
+    return;
+  }
+
+  state.settings.tournamentClosed = true;
+  state.settings.winnerUsername = winner.username;
+  state.settings.winnerName = winner.username;
+  state.settings.winnerDeclaredAt = new Intl.DateTimeFormat("es-CO", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date());
+  persist();
+  setMessage(elements.tournamentMessage, `Ganador declarado: ${winner.username}.`, "ok");
+  renderApp();
+  elements.adminPanel.classList.remove("hidden");
+}
+
+async function resetTournamentForNewWorldCup() {
+  if (currentUser?.role !== "admin") return;
+
+  const firstConfirm = await showConfirmModal({
+    kicker: "// Accion riesgosa",
+    title: "Reiniciar mundial",
+    body: `
+      <p>Esto borrara todos los pronosticos, resultados manuales, resultados oficiales, bloqueos y el ganador declarado.</p>
+      <p>Los usuarios y administradores se conservaran.</p>
+    `,
+    confirmText: "Continuar",
+    danger: true,
+  });
+
+  if (!firstConfirm) {
+    setMessage(elements.tournamentMessage, "Reinicio cancelado.");
+    return;
+  }
+
+  const secondConfirm = await showConfirmModal({
+    kicker: "// Doble confirmacion",
+    title: "Confirmacion final",
+    body: `
+      <p>Para confirmar definitivamente, escribe <strong>REINICIAR</strong>.</p>
+      <p>Esta accion no se puede deshacer desde la plataforma.</p>
+    `,
+    confirmText: "Reiniciar todo",
+    requiredText: "REINICIAR",
+    danger: true,
+  });
+
+  if (!secondConfirm) {
+    setMessage(elements.tournamentMessage, "Reinicio cancelado en la segunda confirmacion.");
+    return;
+  }
+
+  state.matches = mergeMatches([]);
+  state.users = ensureSuperAdmin(
+    state.users.map((user) => ({
+      ...user,
+      predictions: {},
+      lastPredictionRegistration: null,
+    })),
+  );
+  state.settings = defaultSettings({
+    ...state.settings,
+    lastSync: null,
+    tournamentClosed: false,
+    winnerUsername: null,
+    winnerName: null,
+    winnerDeclaredAt: null,
+  });
+  persist();
+  setMessage(elements.tournamentMessage, "Mundial reiniciado. Usuarios conservados y marcadores limpios.", "ok");
+  renderApp();
+  elements.adminPanel.classList.remove("hidden");
 }
 
 function configureAutoSync() {
@@ -1283,6 +1526,9 @@ elements.rankingBody.addEventListener("mouseleave", () => {
 elements.syncResultsButton.addEventListener("click", () => {
   syncResultsFromApi();
 });
+
+elements.declareWinnerButton.addEventListener("click", declareTournamentWinner);
+elements.resetTournamentButton.addEventListener("click", resetTournamentForNewWorldCup);
 
 elements.apiUrl.addEventListener("change", () => {
   state.settings.apiUrl = elements.apiUrl.value.trim() || DEFAULT_API_URL;

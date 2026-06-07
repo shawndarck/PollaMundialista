@@ -81,6 +81,7 @@
             <button class="ghost-action" id="logoutButton" type="button">Salir</button>
           </div>
         </header>
+        <section class="winner-banner panel hidden" id="tournamentNotice"></section>
 
         <section class="metric-grid" aria-label="Resumen">
           <article class="metric-card">
@@ -206,7 +207,7 @@
           </div>
 
           <section id="adminResultsView">
-            <p class="hint">Admin inicial: usuario <strong>admin</strong>, correo <strong>admin@polla.local</strong>, clave <strong>admin2026</strong>.</p>
+            <p class="hint">Super administrador: correo <strong>jomy2646@gmail.com</strong>. La clave solo debe conocerla el administrador.</p>
             <div class="api-sync-card">
               <label>
                 API de resultados
@@ -218,6 +219,15 @@
               </label>
               <button class="primary-action" type="button" id="syncResultsButton">Sincronizar resultados</button>
               <p id="syncMessage" class="form-note"></p>
+            </div>
+            <div class="tournament-control-card">
+              <label>
+                Ganador de la polla
+                <select id="winnerSelect"></select>
+              </label>
+              <button class="primary-action" type="button" id="declareWinnerButton">Declarar ganador</button>
+              <button class="ghost-action danger-action" type="button" id="resetTournamentButton">Reiniciar mundial</button>
+              <p id="tournamentMessage" class="form-note"></p>
             </div>
             <div id="adminMatchList"></div>
           </section>
@@ -240,6 +250,19 @@
       </section>
       <footer class="site-footer">Este aplicativo es de JOSE M. VASQUEZ</footer>
     </main>
+
+    <div class="modal-layer hidden" id="appModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-card panel">
+        <p class="kicker" id="modalKicker">// Confirmacion</p>
+        <h3 id="modalTitle"></h3>
+        <div class="modal-body" id="modalBody"></div>
+        <input class="hidden" id="modalConfirmInput" autocomplete="off" />
+        <div class="modal-actions">
+          <button class="ghost-action" type="button" id="modalCancelButton">Cancelar</button>
+          <button class="primary-action" type="button" id="modalConfirmButton">Aceptar</button>
+        </div>
+      </div>
+    </div>
 
     <script src="app.js"></script>
   </body>

@@ -288,6 +288,17 @@ select:focus {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.danger-action {
+  border-color: rgba(255, 107, 74, 0.8);
+  color: var(--text);
+  background: rgba(255, 107, 74, 0.16);
+}
+
+.primary-action.danger-action {
+  color: var(--text);
+  background: linear-gradient(135deg, #c52e18, #ff6b4a);
+}
+
 .admin-login-action {
   border-color: rgba(255, 77, 0, 0.45);
   color: var(--orange);
@@ -404,6 +415,27 @@ select:focus {
 
 .deadline-alert.warning {
   background: rgba(255, 77, 0, 0.08);
+}
+
+.winner-banner {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding: 14px;
+  border-color: rgba(120, 245, 196, 0.34);
+  background: rgba(120, 245, 196, 0.08);
+}
+
+.winner-banner strong {
+  color: var(--ok);
+  font-size: var(--text-lg);
+}
+
+.winner-banner span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
 }
 
 .main-tabs {
@@ -668,7 +700,8 @@ tr:last-child td {
   margin-bottom: 14px;
 }
 
-.api-sync-card {
+.api-sync-card,
+.tournament-control-card {
   display: grid;
   gap: 10px;
   margin: 14px 0;
@@ -752,8 +785,89 @@ tr:last-child td {
   text-transform: uppercase;
 }
 
+.modal-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(0, 0, 0, 0.68);
+  backdrop-filter: blur(12px);
+}
+
+.modal-card {
+  width: min(480px, 100%);
+  padding: 20px;
+  border-color: rgba(255, 77, 0, 0.34);
+}
+
+.modal-card h3 {
+  margin-bottom: 10px;
+  color: var(--text);
+  font-size: var(--text-xl);
+  line-height: 1.2;
+}
+
+.modal-body {
+  display: grid;
+  gap: 10px;
+  color: var(--muted);
+  font-size: var(--text-md);
+  line-height: 1.55;
+}
+
+.modal-body p {
+  margin: 0;
+}
+
+.modal-summary {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.modal-summary div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.modal-summary dt,
+.modal-summary dd {
+  margin: 0;
+}
+
+.modal-summary dt {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+
+.modal-summary dd {
+  color: var(--orange);
+  font-weight: 900;
+}
+
+#modalConfirmInput {
+  margin-top: 14px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
 button:disabled,
-input:disabled {
+input:disabled,
+select:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
