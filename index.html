@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Polla Mundialista 2026</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <canvas class="field-grid" aria-hidden="true"></canvas>
+    <div class="scanlines" aria-hidden="true"></div>
+
+    <main class="shell">
+      <nav class="top-nav">
+        <span class="nav-logo">POLLA-2026 / SCOREBOARD</span>
+        <span class="nav-status"><i></i> CALENDARIO REAL</span>
+      </nav>
+
+      <section class="auth-screen" id="authPanel">
+        <div class="hero-copy">
+          <p class="kicker">// FIFA World Cup 2026</p>
+          <h1>Polla Mundialista</h1>
+          <p>
+            Pronosticos por usuario, resultados reales administrables y tabla de posiciones
+            calculada con las reglas del torneo.
+          </p>
+          <div class="source-strip">
+            <span>Fuente base: FIFA + calendario publico actualizado</span>
+            <span>104 partidos · 48 selecciones · 16 ciudades</span>
+          </div>
+        </div>
+
+        <form class="panel auth-card" id="authForm" novalidate>
+          <div class="tab-row" role="tablist" aria-label="Modo de acceso">
+            <button class="tab active" type="button" data-auth-mode="login">Ingresar</button>
+            <button class="tab" type="button" data-auth-mode="register">Registro</button>
+          </div>
+
+          <label>
+            Usuario
+            <input id="username" name="username" autocomplete="username" required minlength="3" />
+          </label>
+
+          <label class="register-only hidden">
+            Correo
+            <input id="email" name="email" type="email" autocomplete="email" />
+          </label>
+
+          <label>
+            Contrasena
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+              minlength="9"
+              pattern="(?=.*[A-Za-z])(?=.*\\d)[A-Za-z\\d]{9,}"
+            />
+          </label>
+
+          <p class="hint register-only hidden">
+            La contrasena debe tener mas de 8 caracteres, solo letras y numeros, e incluir ambos.
+          </p>
+
+          <button class="primary-action" type="submit" id="authSubmit">Ingresar</button>
+          <button class="ghost-action admin-login-action" type="button" id="adminLoginButton">Ingresar como administrador</button>
+          <p class="form-note" id="authMessage"></p>
+        </form>
+      </section>
+
+      <section class="dashboard hidden" id="dashboard">
+        <header class="command-bar">
+          <div>
+            <p class="kicker">// Perfil activo</p>
+            <h2 id="welcomeTitle"></h2>
+            <p id="welcomeEmail" class="muted"></p>
+          </div>
+          <div class="command-actions">
+            <button class="ghost-action hidden" id="adminToggle" type="button">Admin</button>
+            <button class="ghost-action" id="logoutButton" type="button">Salir</button>
+          </div>
+        </header>
+
+        <section class="metric-grid" aria-label="Resumen">
+          <article class="metric-card">
+            <span id="myPoints">0</span>
+            <p id="pointsMetricLabel">Puntos</p>
+          </article>
+          <article class="metric-card">
+            <span id="myPredictions">0</span>
+            <p id="pendingMetricLabel">Pendientes por disputar</p>
+          </article>
+          <article class="metric-card metric-wide">
+            <span id="completedMatches">-</span>
+            <p id="nextMatchMetricLabel">Proximo partido</p>
+          </article>
+          <article class="metric-card">
+            <span id="totalMatches">-</span>
+            <p id="predictionStatusMetricLabel">Estado pronostico</p>
+          </article>
+        </section>
+        <section class="deadline-alert panel" id="deadlineAlert"></section>
+
+        <div class="tab-row main-tabs">
+          <button class="tab active" type="button" data-view="matches">Pronosticos</button>
+          <button class="tab" type="button" data-view="ranking">Tabla</button>
+          <button class="tab" type="button" data-view="rules">Reglamento</button>
+        </div>
+
+        <section class="view" id="matchesView">
+          <div class="toolbar panel">
+            <label>
+              Fase / grupo
+              <select id="phaseFilter">
+                <option value="all">Todos</option>
+                <option value="group">Fase de grupos</option>
+                <option value="knockout">Eliminacion directa</option>
+              </select>
+            </label>
+            <label>
+              Buscar equipo
+              <input id="teamSearch" placeholder="Mexico, Colombia, Argentina..." />
+            </label>
+            <button class="primary-action" type="button" id="registerPredictionsButton">Registrar pronosticos</button>
+            <p id="saveMessage" class="form-note"></p>
+          </div>
+          <div class="panel prediction-receipt hidden" id="predictionReceipt"></div>
+          <div class="match-list" id="matchList"></div>
+        </section>
+
+        <section class="view hidden" id="rankingView">
+          <div class="ranking-summary" id="rankingSummary"></div>
+          <div class="panel ranking-note">
+            <p>
+              El desglose cuenta solo partidos con resultado real y pronostico del participante.
+              Las categorias son exclusivas: primero marcador exacto, luego ganador/empate sin
+              marcador exacto, luego un gol exacto y finalmente sin aciertos.
+            </p>
+          </div>
+          <div class="panel table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Usuario</th>
+                  <th>Correo</th>
+                  <th>Puntos</th>
+                  <th>Pronosticos</th>
+                  <th>Marcador exacto</th>
+                  <th>Ganador/empate</th>
+                  <th>Un gol exacto</th>
+                  <th>Sin aciertos</th>
+                </tr>
+              </thead>
+              <tbody id="rankingBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="view hidden" id="rulesView">
+          <div class="panel rules">
+            <h3>Reglamento</h3>
+            <p>Los pronosticos se pueden modificar hasta 10 minutos antes del inicio del partido.</p>
+            <p>Solo cuenta el marcador de 90 minutos mas reposicion. No cuenta tiempo extra ni penaltis.</p>
+            <div class="rules-grid">
+              <article>
+                <h4>Fase de grupos</h4>
+                <p>Resultado acertado: 5 puntos</p>
+                <p>Gol local exacto: 2 puntos</p>
+                <p>Gol visitante exacto: 2 puntos</p>
+                <p>Diferencia exacta: 1 punto</p>
+              </article>
+              <article>
+                <h4>Eliminacion directa</h4>
+                <p>Resultado acertado: 10 puntos</p>
+                <p>Gol local exacto: 4 puntos</p>
+                <p>Gol visitante exacto: 4 puntos</p>
+                <p>Diferencia exacta: 2 puntos</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <aside class="admin-panel panel hidden" id="adminPanel">
+          <div class="admin-header">
+            <div>
+              <p class="kicker">// Administracion</p>
+              <h3>Control del torneo</h3>
+            </div>
+            <button class="ghost-action" type="button" id="closeAdmin">Cerrar</button>
+          </div>
+
+          <div class="tab-row admin-tabs">
+            <button class="tab active" type="button" data-admin-view="results">Resultados</button>
+            <button class="tab" type="button" data-admin-view="users">Usuarios</button>
+          </div>
+
+          <section id="adminResultsView">
+            <p class="hint">Admin inicial: usuario <strong>admin</strong>, correo <strong>admin@polla.local</strong>, clave <strong>admin2026</strong>.</p>
+            <div class="api-sync-card">
+              <label>
+                API de resultados
+                <input id="apiUrl" placeholder="/api/worldcup-results" />
+              </label>
+              <label class="check-row">
+                <input id="autoSyncResults" type="checkbox" />
+                Sincronizar automaticamente cada 5 minutos
+              </label>
+              <button class="primary-action" type="button" id="syncResultsButton">Sincronizar resultados</button>
+              <p id="syncMessage" class="form-note"></p>
+            </div>
+            <div id="adminMatchList"></div>
+          </section>
+
+          <section id="adminUsersView" class="hidden">
+            <form class="admin-user-form" id="adminUserForm" novalidate>
+              <input id="adminUserName" placeholder="usuario" required />
+              <input id="adminUserEmail" type="email" placeholder="correo" required />
+              <input id="adminUserPassword" placeholder="clave alfanumerica" required />
+              <select id="adminUserRole">
+                <option value="player">Jugador</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button class="primary-action" type="submit">Crear</button>
+            </form>
+            <p id="adminUserMessage" class="form-note"></p>
+            <div class="user-list" id="userList"></div>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,4 @@
+node_modules/
+.polla-state.json
+.env
+npm-debug.log*
