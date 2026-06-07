@@ -11,6 +11,7 @@ try {
 }
 
 const PORT = Number(process.env.PORT || 5174);
+const HOST = process.env.HOST || "0.0.0.0";
 const ROOT = __dirname;
 const WORLD_CUP_API = "https://worldcup26.ir/get/games";
 const STATE_FILE = path.join(ROOT, ".polla-state.json");
@@ -158,6 +159,6 @@ http
 
     serveStatic(req, res);
   })
-  .listen(PORT, "127.0.0.1", () => {
-    console.log(`Polla Mundialista disponible en http://127.0.0.1:${PORT}/`);
+  .listen(PORT, HOST, () => {
+    console.log(`Polla Mundialista disponible en http://${HOST}:${PORT}/`);
   });
