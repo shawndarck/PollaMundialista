@@ -158,7 +158,6 @@ const elements = {
   password: $("#password"),
   authMessage: $("#authMessage"),
   authSubmit: $("#authSubmit"),
-  adminLoginButton: $("#adminLoginButton"),
   themeToggle: $("#themeToggle"),
   welcomeTitle: $("#welcomeTitle"),
   welcomeEmail: $("#welcomeEmail"),
@@ -312,6 +311,8 @@ function mergeMatches(savedMatches) {
       ...match,
       realHome: saved?.realHome ?? null,
       realAway: saved?.realAway ?? null,
+      resolvedHome: saved?.resolvedHome || null,
+      resolvedAway: saved?.resolvedAway || null,
       resultLocked: Boolean(saved?.resultLocked),
       resultSource: saved?.resultSource || (Number.isInteger(saved?.realHome) && Number.isInteger(saved?.realAway) ? "manual" : null),
       officialFinal: Boolean(saved?.officialFinal),
@@ -588,6 +589,117 @@ function getRanking() {
     .sort((a, b) => b.points - a.points || b.predictions - a.predictions || a.user.username.localeCompare(b.user.username));
 }
 
+function groupMatches(group) {
+  return state.matches.filter((match) => match.phase === "group" && match.group === `Grupo ${group}`);
+}
+
+function getGroupStandings(group) {
+  const rows = new Map();
+  const ensureRow = (team) => {
+    if (!rows.has(team)) {
+      rows.set(team, { team, played: 0, points: 0, goalsFor: 0, goalsAgainst: 0, goalDiff: 0, wins: 0 });
+    }
+    return rows.get(team);
+  };
+
+  groupMatches(group).forEach((match) => {
+    ensureRow(match.home);
+    ensureRow(match.away);
+    if (!isCompleted(match)) return;
+
+    const home = ensureRow(match.home);
+    const away = ensureRow(match.away);
+    home.played += 1;
+    away.played += 1;
+    home.goalsFor += match.realHome;
+    home.goalsAgainst += match.realAway;
+    away.goalsFor += match.realAway;
+    away.goalsAgainst += match.realHome;
+    home.goalDiff = home.goalsFor - home.goalsAgainst;
+    away.goalDiff = away.goalsFor - away.goalsAgainst;
+
+    if (match.realHome > match.realAway) {
+      home.points += 3;
+      home.wins += 1;
+    } else if (match.realHome < match.realAway) {
+      away.points += 3;
+      away.wins += 1;
+    } else {
+      home.points += 1;
+      away.points += 1;
+    }
+  });
+
+  return [...rows.values()].sort(
+    (a, b) =>
+      b.points - a.points ||
+      b.goalDiff - a.goalDiff ||
+      b.goalsFor - a.goalsFor ||
+      b.wins - a.wins ||
+      a.team.localeCompare(b.team),
+  );
+}
+
+function groupIsComplete(group) {
+  const matches = groupMatches(group);
+  return matches.length > 0 && matches.every(isCompleted);
+}
+
+function getBestThirds() {
+  return "ABCDEFGHIJKL"
+    .split("")
+    .filter(groupIsComplete)
+    .map((group) => ({ group, row: getGroupStandings(group)[2] }))
+    .filter((item) => item.row)
+    .sort(
+      (a, b) =>
+        b.row.points - a.row.points ||
+        b.row.goalDiff - a.row.goalDiff ||
+        b.row.goalsFor - a.row.goalsFor ||
+        b.row.wins - a.row.wins ||
+        a.group.localeCompare(b.group),
+    );
+}
+
+function resolveGroupPlaceholder(value) {
+  const match = value.match(/^([123]) Grupo ([A-L](?:\/[A-L])*)$/);
+  if (!match) return null;
+
+  const position = Number(match[1]);
+  const groups = match[2].split("/");
+
+  if (position < 3) {
+    if (groups.length !== 1 || !groupIsComplete(groups[0])) return null;
+    return getGroupStandings(groups[0])[position - 1]?.team || null;
+  }
+
+  if (!"ABCDEFGHIJKL".split("").every(groupIsComplete)) return null;
+  const allowed = new Set(groups);
+  return getBestThirds().find((item) => allowed.has(item.group))?.row.team || null;
+}
+
+function resolveKnockoutPlaceholder(value) {
+  const match = value.match(/^(Ganador|Perdedor) M(\d{2,3})$/);
+  if (!match) return null;
+
+  const source = state.matches.find((item) => Number(item.id.replace("m", "")) === Number(match[2]));
+  if (!source || !isCompleted(source)) return null;
+
+  const sourceHome = displayTeamName(source, "home");
+  const sourceAway = displayTeamName(source, "away");
+  if (source.realHome === source.realAway) return null;
+  const homeAdvanced = source.realHome >= source.realAway;
+  const winner = homeAdvanced ? sourceHome : sourceAway;
+  const loser = homeAdvanced ? sourceAway : sourceHome;
+  return match[1] === "Ganador" ? winner : loser;
+}
+
+function displayTeamName(match, side) {
+  const baseName = side === "home" ? match.home : match.away;
+  const resolvedName = side === "home" ? match.resolvedHome : match.resolvedAway;
+  return resolvedName || resolveKnockoutPlaceholder(baseName) || resolveGroupPlaceholder(baseName) || baseName;
+}
+
 function formatKickoff(value) {
   return new Intl.DateTimeFormat("es-CO", {
     weekday: "short",
@@ -652,7 +764,7 @@ function renderStats() {
   elements.pendingMetricLabel.textContent = "Pendientes por disputar";
 
   if (next) {
-    elements.completedMatches.textContent = nextMatches.length > 1 ? `${nextMatches.length} partidos` : `${next.home} vs ${next.away}`;
+    elements.completedMatches.textContent = nextMatches.length > 1 ? `${nextMatches.length} partidos` : `${displayTeamName(next, "home")} vs ${displayTeamName(next, "away")}`;
     elements.nextMatchMetricLabel.textContent = `${next.city} · ${formatColombiaDate(next.kickoff)}`;
     elements.totalMatches.textContent = nextPrediction ? "Registrado" : "Falta";
     elements.predictionStatusMetricLabel.textContent = nextPrediction
@@ -709,7 +821,7 @@ function renderDeadlineAlert(user, nextMatches) {
   }
 
   const missing = nextMatches.filter((match) => !user.predictions[match.id]);
-  const names = nextMatches.map((match) => `${match.home} vs ${match.away}`).join(" · ");
+  const names = nextMatches.map((match) => `${displayTeamName(match, "home")} vs ${displayTeamName(match, "away")}`).join(" · ");
   const statusClass = missing.length ? "deadline-alert warning" : "deadline-alert ok";
   elements.deadlineAlert.className = `${statusClass} panel`;
   elements.deadlineAlert.innerHTML = `
@@ -728,7 +840,7 @@ function filteredMatches() {
   return baseMatches.filter((match) => {
     const phaseMatch = filter === "all" || match.phase === filter;
     const priorityMatch = filter === "priority";
-    const text = `${match.home} ${match.away} ${match.group} ${match.venue} ${match.city}`.toLowerCase();
+    const text = `${match.home} ${match.away} ${displayTeamName(match, "home")} ${displayTeamName(match, "away")} ${match.group} ${match.venue} ${match.city}`.toLowerCase();
     return (phaseMatch || priorityMatch) && (!query || text.includes(query));
   });
 }
@@ -756,6 +868,8 @@ function renderMatches() {
   elements.matchList.innerHTML = matches
     .map((match) => {
       const prediction = currentUser.predictions[match.id] || {};
+      const homeName = displayTeamName(match, "home");
+      const awayName = displayTeamName(match, "away");
       const locked = isPredictionLocked(match);
       const completed = isCompleted(match);
       const points = scorePrediction(match, prediction);
@@ -768,19 +882,19 @@ function renderMatches() {
         <article class="match-card">
           <div>
             <span class="phase-pill">${match.id.toUpperCase()} · ${match.group}</span>
-            <p class="teams">${match.home} vs ${match.away}</p>
+            <p class="teams">${homeName} vs ${awayName}</p>
             <p class="venue">${match.venue} · ${match.city}</p>
             <p class="kickoff">${formatKickoff(match.kickoff)} · <strong class="${statusClass}">${statusText}</strong></p>
             <p class="kickoff lock-countdown" data-lock-match-id="${match.id}">${lockCountdownText(match)}</p>
           </div>
           <div class="score-form" data-match-id="${match.id}">
             <label>
-              ${match.home}
+              ${homeName}
               <input type="number" min="0" max="30" inputmode="numeric" data-side="home" value="${prediction.home ?? ""}" ${locked ? "disabled" : ""} />
             </label>
             <span>-</span>
             <label>
-              ${match.away}
+              ${awayName}
               <input type="number" min="0" max="30" inputmode="numeric" data-side="away" value="${prediction.away ?? ""}" ${locked ? "disabled" : ""} />
             </label>
           </div>
@@ -803,6 +917,8 @@ function renderCalendar() {
   elements.calendarList.innerHTML = state.matches
     .map((match) => {
       const result = isCompleted(match) ? `${match.realHome} - ${match.realAway}` : "Pendiente";
+      const homeName = displayTeamName(match, "home");
+      const awayName = displayTeamName(match, "away");
       const prediction = currentUser?.predictions?.[match.id];
       const predictionText = prediction ? `${prediction.home} - ${prediction.away}` : "Sin pronostico registrado";
       const predictionClass = prediction ? "prediction-made" : "prediction-missing";
@@ -811,7 +927,7 @@ function renderCalendar() {
         <article class="calendar-card">
           <div>
             <span class="phase-pill">${match.id.toUpperCase()} · ${match.group}</span>
-            <p class="teams">${match.home} vs ${match.away}</p>
+            <p class="teams">${homeName} vs ${awayName}</p>
             <p class="venue">${match.venue} · ${match.city}</p>
           </div>
           <div>
@@ -892,7 +1008,7 @@ function renderAdmin() {
       (match) => `
         <article class="admin-match-card">
           <div>
-            <strong>${match.id.toUpperCase()} · ${match.home} vs ${match.away}</strong>
+            <strong>${match.id.toUpperCase()} · ${displayTeamName(match, "home")} vs ${displayTeamName(match, "away")}</strong>
             <p class="kickoff">${match.group} · ${formatKickoff(match.kickoff)} · ${match.city} · ${resultSourceLabel(match)}</p>
           </div>
           <div class="admin-score-row" data-admin-match-id="${match.id}">
@@ -1070,7 +1186,7 @@ function collectVisiblePredictionDrafts() {
     const bothComplete = homeValue !== "" && awayValue !== "";
 
     if (!bothEmpty && !bothComplete) {
-      errors.push(`${match.home} vs ${match.away}`);
+      errors.push(`${displayTeamName(match, "home")} vs ${displayTeamName(match, "away")}`);
       return;
     }
 
@@ -1199,13 +1315,37 @@ function apiNumber(value) {
   return Number.isInteger(number) ? number : null;
 }
 
+function apiTeamName(game, side) {
+  const homeCandidates = [game.home_team_name_en, game.homeTeamName, game.homeTeam, game.home, game.home_team];
+  const awayCandidates = [game.away_team_name_en, game.visitingTeamName, game.awayTeamName, game.awayTeam, game.away, game.away_team, game.visitingTeam];
+  const value = (side === "home" ? homeCandidates : awayCandidates).find((item) => typeof item === "string" && item.trim());
+  return value ? value.trim() : "";
+}
+
+function isUnresolvedTeamName(value = "") {
+  const normalized = normalizeTeamName(value);
+  return (
+    /^([123]) grupo /.test(normalized) ||
+    /^([123]) group /.test(normalized) ||
+    normalized.includes("ganador") ||
+    normalized.includes("perdedor") ||
+    normalized.includes("winner") ||
+    normalized.includes("loser") ||
+    normalized.includes("third")
+  );
+}
+
 function findMatchForApiGame(game) {
   const byId = state.matches.find((match) => Number(match.id.replace("m", "")) === Number(game.id));
   if (byId) return byId;
 
   const home = normalizeTeamName(game.home_team_name_en || game.homeTeam || game.home || game.home_team);
   const away = normalizeTeamName(game.away_team_name_en || game.awayTeam || game.away || game.away_team);
-  return state.matches.find((match) => normalizeTeamName(match.home) === home && normalizeTeamName(match.away) === away);
+  return state.matches.find((match) => {
+    const localHome = normalizeTeamName(displayTeamName(match, "home"));
+    const localAway = normalizeTeamName(displayTeamName(match, "away"));
+    return (normalizeTeamName(match.home) === home && normalizeTeamName(match.away) === away) || (localHome === home && localAway === away);
+  });
 }
 
 async function syncResultsFromApi({ silent = false } = {}) {
@@ -1223,12 +1363,26 @@ async function syncResultsFromApi({ silent = false } = {}) {
     const games = Array.isArray(payload) ? payload : payload.games || payload.data || payload.matches || [];
     let updated = 0;
     let finished = 0;
+    let renamed = 0;
 
     games.forEach((game) => {
+      const match = findMatchForApiGame(game);
+      if (!match) return;
+
+      const apiHome = apiTeamName(game, "home");
+      const apiAway = apiTeamName(game, "away");
+      if (apiHome && !isUnresolvedTeamName(apiHome) && normalizeTeamName(apiHome) !== normalizeTeamName(match.home) && normalizeTeamName(apiHome) !== normalizeTeamName(match.resolvedHome)) {
+        match.resolvedHome = apiHome;
+        renamed += 1;
+      }
+      if (apiAway && !isUnresolvedTeamName(apiAway) && normalizeTeamName(apiAway) !== normalizeTeamName(match.away) && normalizeTeamName(apiAway) !== normalizeTeamName(match.resolvedAway)) {
+        match.resolvedAway = apiAway;
+        renamed += 1;
+      }
+
       if (!apiGameFinished(game)) return;
       const homeScore = apiNumber(game.home_score ?? game.homeTeamScore ?? game.score?.home);
       const awayScore = apiNumber(game.away_score ?? game.visitingTeamScore ?? game.awayTeamScore ?? game.score?.away);
-      const match = findMatchForApiGame(game);
 
       if (!match || homeScore === null || awayScore === null) return;
       finished += 1;
@@ -1254,7 +1408,7 @@ async function syncResultsFromApi({ silent = false } = {}) {
     }).format(new Date());
     persist();
     renderApp();
-    setMessage(elements.syncMessage, `Sincronizacion OK. Finalizados detectados: ${finished}. Actualizados: ${updated}.`, "ok");
+    setMessage(elements.syncMessage, `Sincronizacion OK. Finalizados detectados: ${finished}. Marcadores actualizados: ${updated}. Equipos resueltos: ${renamed}.`, "ok");
   } catch (error) {
     if (!silent) setMessage(elements.syncMessage, `No se pudo sincronizar: ${error.message}. Puedes cargar resultados manualmente.`, "error");
   }
@@ -1458,14 +1612,6 @@ elements.authForm.addEventListener("submit", (event) => {
   currentUser = user;
   startSession();
   renderApp();
-});
-
-elements.adminLoginButton.addEventListener("click", () => {
-  switchAuthMode("login");
-  elements.username.value = SUPER_ADMIN.email;
-  elements.password.value = "";
-  elements.password.focus();
-  setMessage(elements.authMessage, "Ingresa la contrasena del super administrador.", "ok");
 });
 
 elements.themeToggle.addEventListener("click", toggleTheme);
