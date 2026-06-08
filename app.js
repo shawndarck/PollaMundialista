@@ -1,4 +1,5 @@
 const STORAGE_KEY = "pollaMundialista2026_v2";
+const THEME_KEY = "pollaMundialistaTheme";
 const PASSWORD_PATTERN = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{9,}$/;
 const DEFAULT_API_URL = "/api/worldcup-results";
 const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
@@ -158,6 +159,7 @@ const elements = {
   authMessage: $("#authMessage"),
   authSubmit: $("#authSubmit"),
   adminLoginButton: $("#adminLoginButton"),
+  themeToggle: $("#themeToggle"),
   welcomeTitle: $("#welcomeTitle"),
   welcomeEmail: $("#welcomeEmail"),
   logoutButton: $("#logoutButton"),
@@ -356,6 +358,22 @@ function normalizeEmail(value) {
 function normalizeApiUrl(value) {
   if (!value || value.includes("worldcup26.ir/get/games")) return DEFAULT_API_URL;
   return value;
+}
+
+function loadTheme() {
+  return localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark";
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem(THEME_KEY, theme);
+  elements.themeToggle.textContent = theme === "light" ? "Modo oscuro" : "Modo claro";
+  elements.themeToggle.setAttribute("aria-pressed", theme === "light" ? "true" : "false");
+  drawGrid();
+}
+
+function toggleTheme() {
+  applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
 }
 
 function setMessage(element, text, type = "") {
@@ -615,7 +633,7 @@ function renderTournamentNotice() {
 
   elements.tournamentNotice.classList.remove("hidden");
   elements.tournamentNotice.innerHTML = `
-    <strong>Ganador de la Polla Mundialista: ${state.settings.winnerName}</strong>
+    <strong>Ganador de la Polla Mundialista AGR Y CIA: ${state.settings.winnerName}</strong>
     <span>${declared} ${adminText}</span>
   `;
 }
@@ -785,6 +803,10 @@ function renderCalendar() {
   elements.calendarList.innerHTML = state.matches
     .map((match) => {
       const result = isCompleted(match) ? `${match.realHome} - ${match.realAway}` : "Pendiente";
+      const prediction = currentUser?.predictions?.[match.id];
+      const predictionText = prediction ? `${prediction.home} - ${prediction.away}` : "Sin pronostico registrado";
+      const predictionClass = prediction ? "prediction-made" : "prediction-missing";
+      const points = prediction && isCompleted(match) ? `${scorePrediction(match, prediction)} pts` : "";
       return `
         <article class="calendar-card">
           <div>
@@ -795,6 +817,7 @@ function renderCalendar() {
           <div>
             <p class="kickoff">${formatColombiaDate(match.kickoff)} hora Colombia</p>
             <p class="kickoff">${lockCountdownText(match)}</p>
+            <p class="calendar-prediction ${predictionClass}">Tu pronostico: <strong>${predictionText}</strong>${points ? ` · ${points}` : ""}</p>
           </div>
           <strong>${result}</strong>
         </article>
@@ -1372,13 +1395,16 @@ function endSession(message = "") {
 function drawGrid() {
   const canvas = document.querySelector(".field-grid");
   const ctx = canvas.getContext("2d");
+  const styles = getComputedStyle(document.documentElement);
+  const gridColor = styles.getPropertyValue("--grid-line").trim() || "rgba(255, 77, 0, 0.13)";
+  const fieldColor = styles.getPropertyValue("--field-line").trim() || "rgba(238, 232, 222, 0.08)";
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.floor(window.innerWidth * ratio);
   canvas.height = Math.floor(window.innerHeight * ratio);
   ctx.scale(ratio, ratio);
   ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
-  ctx.strokeStyle = "rgba(255, 77, 0, 0.13)";
+  ctx.strokeStyle = gridColor;
   ctx.lineWidth = 1;
   const gap = 44;
   for (let x = 0; x <= window.innerWidth; x += gap) {
@@ -1394,7 +1420,7 @@ function drawGrid() {
     ctx.stroke();
   }
 
-  ctx.strokeStyle = "rgba(238, 232, 222, 0.08)";
+  ctx.strokeStyle = fieldColor;
   ctx.beginPath();
   ctx.ellipse(window.innerWidth / 2, window.innerHeight / 2, 180, 180, 0, 0, Math.PI * 2);
   ctx.moveTo(window.innerWidth / 2, 0);
@@ -1441,6 +1467,8 @@ elements.adminLoginButton.addEventListener("click", () => {
   elements.password.focus();
   setMessage(elements.authMessage, "Ingresa la contrasena del super administrador.", "ok");
 });
+
+elements.themeToggle.addEventListener("click", toggleTheme);
 
 document.querySelectorAll("[data-auth-mode]").forEach((button) => {
   button.addEventListener("click", () => switchAuthMode(button.dataset.authMode));
@@ -1627,7 +1655,7 @@ window.addEventListener("popstate", () => {
   }
 });
 
-drawGrid();
+applyTheme(loadTheme());
 persist();
 configureAutoSync();
 renderApp();
